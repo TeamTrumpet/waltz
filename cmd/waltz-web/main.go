@@ -123,7 +123,7 @@ func main() {
 	n.UseHandler(mux)
 
 	server := &http.Server{
-		Addr:    "127.0.0.1:3100",
+		Addr:    fmt.Sprintf("0.0.0.0:%s", os.Getenv("PORT")),
 		Handler: n,
 	}
 
