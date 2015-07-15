@@ -15,7 +15,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-const imageExpiry = 1 * time.Hour * 24 * 30
+const imageExpiry time.Duration = 1 * time.Hour * 24 * 30
 
 var (
 	awsBucketName, awsRegion string
@@ -82,22 +82,24 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 		return
 	}
 
+	ifNoneMatch := r.Header.Get("If-None-Match")
+	if ifNoneMatch != "" {
+		if ifNoneMatch == *resp.ETag {
+			fmt.Println("Not modified")
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
 	// write out the content type
+	w.Header().Set("Cache-control", fmt.Sprintf("public, max-age=%d", int64(imageExpiry.Seconds())))
 	w.Header().Set("Content-Type", *resp.ContentType)
+	w.Header().Set("Etag", *resp.ETag)
 
 	if err := waltz.Do(resp.Body, w, nil, resizeX, resizeY); err != nil {
 		fmt.Println("Resize Error:", err.Error())
 		http.Error(w, "", http.StatusInternalServerError)
 		return
-	}
-}
-
-func testHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, "<img src=\"/image/jellypus.png\"/>")
-
-	for i := 500; i > 0; i -= 25 {
-		fmt.Fprintf(w, "<img src=\"/image/jellypus.png?resize=%d\" width=\"%dpx\" height=\"%dpx\"/>", i, i, i)
 	}
 }
 
@@ -117,7 +119,6 @@ func main() {
 
 	// add routes
 	mux.GET("/image/:image_key", resizeHandler)
-	mux.GET("/test", testHandler)
 
 	// add mux to middleware stack
 	n.UseHandler(mux)
