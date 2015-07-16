@@ -103,6 +103,12 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 	}
 }
 
+func robotsHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	w.Header().Set("Content-Type", "text/plain")
+
+	fmt.Fprintf(w, "User-Agent: *\nDisallow: /")
+}
+
 func main() {
 	// fetch config from environment
 	awsRegion = os.Getenv("AWS_REGION")
@@ -119,6 +125,7 @@ func main() {
 
 	// add routes
 	mux.GET("/image/:image_key", resizeHandler)
+	mux.GET("/robots.txt", robotsHandler)
 
 	// add mux to middleware stack
 	n.UseHandler(mux)
