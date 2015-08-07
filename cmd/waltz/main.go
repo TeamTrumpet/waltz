@@ -32,43 +32,52 @@ func main() {
 
 	flag.Parse()
 
-	crop1 := strings.Split(crop, ",")
+	var (
+		cropRectangle *image.Rectangle
+		err           error
+	)
 
-	if len(crop1) != 2 {
-		log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
+	if crop != "" {
+
+		crop1 := strings.Split(crop, ",")
+
+		if len(crop1) != 2 {
+			log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		crop2TL := strings.Split(crop1[0], "x")
+
+		if len(crop2TL) != 2 {
+			log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		crop2BR := strings.Split(crop1[1], "x")
+
+		if len(crop2BR) != 2 {
+			log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		if cropTLX, err = strconv.Atoi(crop2TL[0]); err != nil {
+			log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		if cropTLY, err = strconv.Atoi(crop2TL[1]); err != nil {
+			log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		if cropBRX, err = strconv.Atoi(crop2BR[0]); err != nil {
+			log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		if cropBRY, err = strconv.Atoi(crop2BR[1]); err != nil {
+			log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
+		}
+
+		cr := image.Rect(cropTLX, cropTLY, cropBRX, cropBRY)
+
+		cropRectangle = &cr
+
 	}
-
-	crop2TL := strings.Split(crop1[0], "x")
-
-	if len(crop2TL) != 2 {
-		log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	crop2BR := strings.Split(crop1[1], "x")
-
-	if len(crop2BR) != 2 {
-		log.Fatalf("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	var err error
-
-	if cropTLX, err = strconv.Atoi(crop2TL[0]); err != nil {
-		log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	if cropTLY, err = strconv.Atoi(crop2TL[1]); err != nil {
-		log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	if cropBRX, err = strconv.Atoi(crop2BR[0]); err != nil {
-		log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	if cropBRY, err = strconv.Atoi(crop2BR[1]); err != nil {
-		log.Fatalln("crop invalid, should be in the form of 0x0,32x32")
-	}
-
-	cropRectangle := image.Rect(cropTLX, cropTLY, cropBRX, cropBRY)
 
 	resize1 := strings.Split(resize, "x")
 
@@ -86,7 +95,7 @@ func main() {
 		}
 	}
 
-	if err := waltz.Do(os.Stdin, os.Stdout, &cropRectangle, resizeX, resizeY); err != nil {
+	if err := waltz.Do(os.Stdin, os.Stdout, cropRectangle, resizeX, resizeY); err != nil {
 		log.Fatalf("An error occured performing the resize: %s\n", err.Error())
 	}
 }
