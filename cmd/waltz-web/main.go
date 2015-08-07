@@ -24,13 +24,15 @@ var (
 )
 
 func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	log.Println("Starting resizeHandler")
+
 	imageKey := ps.ByName("image_key")
 
 	// fetch the query param
 	resizeQuery := r.URL.Query().Get("resize")
 
 	if resizeQuery == "" {
-		// https://s3-us-west-2.amazonaws.com/armstrong-images/jellypus.png
+		log.Println("Completed resizeHandler: Redirected, no resize parameter")
 		urlStr := fmt.Sprintf("https://s3-%s.amazonaws.com/%s/%s", awsRegion, awsBucketName, imageKey)
 		http.Redirect(w, r, urlStr, http.StatusTemporaryRedirect)
 		return
@@ -38,7 +40,7 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 	resizeX, resizeY, err := waltz.ParseResize(resizeQuery)
 	if err != nil {
-		fmt.Println("Request Error:", err.Error())
+		log.Println("Completed resizeHandler: ERROR: Resize parameters invalid:", err.Error())
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
@@ -61,26 +63,26 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 				// if this is a not modified error, then cut quick
 				if reqErr.StatusCode() == http.StatusNotModified {
+					log.Println("Completed resizeHandler: Object not modified")
 					w.WriteHeader(http.StatusNotModified)
 					return
 				}
 
-				// A service error occurred
-				fmt.Println("AWS Service error:", reqErr.Code(), reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
-
 				if reqErr.StatusCode() == http.StatusNotFound {
-					http.Error(w, "", http.StatusNotFound)
+					log.Println("Completed resizeHandler: Key not found")
+					w.WriteHeader(http.StatusNotFound)
 					return
 				}
 
+				// A service error occurred
+				log.Println("Completed resizeHandler: ERROR: AWS Service error:", reqErr.Code(), reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 
 			}
 
 			// Generic AWS error with Code, Message, and original error (if any)
-			fmt.Println("Generic AWS error:", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
-
+			log.Println("Completed resizeHandler: ERROR: Generic AWS error:", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 			http.Error(w, "", http.StatusInternalServerError)
 			return
 
@@ -88,8 +90,7 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 		// This case should never be hit, the SDK should always return an
 		// error which satisfies the awserr.Error interface.
-		fmt.Println("Impossible error:", err.Error())
-
+		log.Println("Completed resizeHandler: ERROR: Impossible error:", err.Error())
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
@@ -100,7 +101,7 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 	w.Header().Set("Etag", *resp.ETag)
 
 	if err := waltz.Do(resp.Body, w, nil, resizeX, resizeY); err != nil {
-		fmt.Println("Resize Error:", err.Error())
+		log.Println("Completed resizeHandler: ERROR: Resize Error:", err.Error())
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
