@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -47,11 +48,22 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 		Key:    aws.String(imageKey),
 	}
 
+	ifNoneMatch := r.Header.Get("If-None-Match")
+	if ifNoneMatch != "" {
+		params.IfNoneMatch = aws.String(ifNoneMatch)
+	}
+
 	resp, err := client.GetObject(params)
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
 
 			if reqErr, ok := err.(awserr.RequestFailure); ok {
+
+				// if this is a not modified error, then cut quick
+				if reqErr.StatusCode() == http.StatusNotModified {
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
 
 				// A service error occurred
 				fmt.Println("AWS Service error:", reqErr.Code(), reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
@@ -80,15 +92,6 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 		http.Error(w, "", http.StatusInternalServerError)
 		return
-	}
-
-	ifNoneMatch := r.Header.Get("If-None-Match")
-	if ifNoneMatch != "" {
-		if ifNoneMatch == *resp.ETag {
-			fmt.Println("Not modified")
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
 	}
 
 	// write out the content type
@@ -134,6 +137,8 @@ func main() {
 		Addr:    fmt.Sprintf("0.0.0.0:%s", os.Getenv("PORT")),
 		Handler: n,
 	}
+
+	log.Printf("Starting server on 0.0.0.0:%s\n", os.Getenv("PORT"))
 
 	// run using gracehttp
 	gracehttp.Serve(server)
