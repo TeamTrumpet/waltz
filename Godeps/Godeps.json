@@ -75,10 +75,6 @@
 			"Rev": "31fb71caf5a4f04c9f8bb3fa8e7c2597ba6eb50a"
 		},
 		{
-			"ImportPath": "github.com/julienschmidt/httprouter",
-			"Rev": "b428fda53bb0a764fea9c76c9413512eda291dec"
-		},
-		{
 			"ImportPath": "github.com/vaughan0/go-ini",
 			"Rev": "a98ad7ee00ec53921f08832bc06ecf7fd600e6a1"
 		},

@@ -13,102 +13,109 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/codegangsta/negroni"
 	"github.com/facebookgo/grace/gracehttp"
-	"github.com/julienschmidt/httprouter"
 )
 
 const imageExpiry time.Duration = 1 * time.Hour * 24 * 30
 
-var (
-	awsBucketName, awsRegion string
-	client                   *s3.S3
-)
+type resizeOpts struct {
+	region, bucket, prefix string
+	path                   string
 
-func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	log.Println("Starting resizeHandler")
+	client *s3.S3
+}
 
-	imageKey := ps.ByName("image_key")
+func newResizeHandler(ro resizeOpts) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Starting resizeHandler")
 
-	// fetch the query param
-	resizeQuery := r.URL.Query().Get("resize")
+		imageKey := r.URL.Path[len(ro.path):]
 
-	if resizeQuery == "" {
-		log.Println("Completed resizeHandler: Redirected, no resize parameter")
-		urlStr := fmt.Sprintf("https://s3-%s.amazonaws.com/%s/%s", awsRegion, awsBucketName, imageKey)
-		http.Redirect(w, r, urlStr, http.StatusTemporaryRedirect)
-		return
-	}
+		// fetch the query param
+		resizeQuery := r.URL.Query().Get("resize")
 
-	resizeX, resizeY, err := waltz.ParseResize(resizeQuery)
-	if err != nil {
-		log.Println("Completed resizeHandler: ERROR: Resize parameters invalid:", err.Error())
-		http.Error(w, "", http.StatusBadRequest)
-		return
-	}
+		key := fmt.Sprintf("%s/%s", ro.prefix, imageKey)
 
-	params := &s3.GetObjectInput{
-		Bucket: aws.String(awsBucketName),
-		Key:    aws.String(imageKey),
-	}
+		if resizeQuery == "" {
+			log.Println("Completed resizeHandler: Redirected, no resize parameter")
+			urlStr := fmt.Sprintf("https://s3-%s.amazonaws.com/%s/%s", ro.region, ro.bucket, key)
+			http.Redirect(w, r, urlStr, http.StatusTemporaryRedirect)
+			return
+		}
 
-	ifNoneMatch := r.Header.Get("If-None-Match")
-	if ifNoneMatch != "" {
-		params.IfNoneMatch = aws.String(ifNoneMatch)
-	}
+		resizeX, resizeY, err := waltz.ParseResize(resizeQuery)
+		if err != nil {
+			log.Println("Completed resizeHandler: ERROR: Resize parameters invalid:", err.Error())
+			http.Error(w, "", http.StatusBadRequest)
+			return
+		}
 
-	resp, err := client.GetObject(params)
-	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok {
+		params := &s3.GetObjectInput{
+			Bucket: aws.String(ro.bucket),
+			Key:    aws.String(key),
+		}
 
-			if reqErr, ok := err.(awserr.RequestFailure); ok {
+		log.Println("Getting", *params.Key, "from bucket", *params.Bucket)
 
-				// if this is a not modified error, then cut quick
-				if reqErr.StatusCode() == http.StatusNotModified {
-					log.Println("Completed resizeHandler: Object not modified")
-					w.WriteHeader(http.StatusNotModified)
+		ifNoneMatch := r.Header.Get("If-None-Match")
+		if ifNoneMatch != "" {
+			params.IfNoneMatch = aws.String(ifNoneMatch)
+		}
+
+		resp, err := ro.client.GetObject(params)
+		if err != nil {
+			if awsErr, ok := err.(awserr.Error); ok {
+
+				if reqErr, ok := err.(awserr.RequestFailure); ok {
+
+					// if this is a not modified error, then cut quick
+					if reqErr.StatusCode() == http.StatusNotModified {
+						log.Println("Completed resizeHandler: Object not modified")
+						w.WriteHeader(http.StatusNotModified)
+						return
+					}
+
+					if reqErr.StatusCode() == http.StatusNotFound {
+						log.Println("Completed resizeHandler: Key not found")
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+
+					// A service error occurred
+					log.Println("Completed resizeHandler: ERROR: AWS Service error:", reqErr.Code(), reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+					http.Error(w, "", http.StatusInternalServerError)
 					return
+
 				}
 
-				if reqErr.StatusCode() == http.StatusNotFound {
-					log.Println("Completed resizeHandler: Key not found")
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-
-				// A service error occurred
-				log.Println("Completed resizeHandler: ERROR: AWS Service error:", reqErr.Code(), reqErr.Message(), reqErr.StatusCode(), reqErr.RequestID())
+				// Generic AWS error with Code, Message, and original error (if any)
+				log.Println("Completed resizeHandler: ERROR: Generic AWS error:", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 
 			}
 
-			// Generic AWS error with Code, Message, and original error (if any)
-			log.Println("Completed resizeHandler: ERROR: Generic AWS error:", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
+			// This case should never be hit, the SDK should always return an
+			// error which satisfies the awserr.Error interface.
+			log.Println("Completed resizeHandler: ERROR: Impossible error:", err.Error())
 			http.Error(w, "", http.StatusInternalServerError)
 			return
 
 		}
 
-		// This case should never be hit, the SDK should always return an
-		// error which satisfies the awserr.Error interface.
-		log.Println("Completed resizeHandler: ERROR: Impossible error:", err.Error())
-		http.Error(w, "", http.StatusInternalServerError)
-		return
+		// write out the content type
+		w.Header().Set("Cache-control", fmt.Sprintf("public, max-age=%d", int64(imageExpiry.Seconds())))
+		w.Header().Set("Content-Type", *resp.ContentType)
+		w.Header().Set("Etag", *resp.ETag)
 
-	}
-
-	// write out the content type
-	w.Header().Set("Cache-control", fmt.Sprintf("public, max-age=%d", int64(imageExpiry.Seconds())))
-	w.Header().Set("Content-Type", *resp.ContentType)
-	w.Header().Set("Etag", *resp.ETag)
-
-	if err := waltz.Do(resp.Body, w, nil, resizeX, resizeY); err != nil {
-		log.Println("Completed resizeHandler: ERROR: Resize Error:", err.Error())
-		http.Error(w, "", http.StatusInternalServerError)
-		return
+		if err := waltz.Do(resp.Body, w, nil, resizeX, resizeY); err != nil {
+			log.Println("Completed resizeHandler: ERROR: Resize Error:", err.Error())
+			http.Error(w, "", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
-func robotsHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func robotsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
 	fmt.Fprintf(w, "User-Agent: *\nDisallow: /")
@@ -116,21 +123,35 @@ func robotsHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 func main() {
 	// fetch config from environment
-	awsRegion = os.Getenv("AWS_REGION")
-	awsBucketName = os.Getenv("AWS_BUCKET")
+	awsRegion := os.Getenv("AWS_REGION")
+	awsBucketName := os.Getenv("AWS_BUCKET")
+	awsBucketPrefix := os.Getenv("AWS_BUCKET_PREFIX")
 
 	// create the s3 client
-	client = s3.New(nil)
+	client := s3.New(nil)
 
 	// create middleware
 	n := negroni.Classic()
 
 	// create mux
-	mux := httprouter.New()
+	mux := http.NewServeMux()
 
-	// add routes
-	mux.GET("/image/:image_key", resizeHandler)
-	mux.GET("/robots.txt", robotsHandler)
+	resizePath := fmt.Sprintf("/%s/", awsBucketPrefix)
+
+	ro := resizeOpts{
+		bucket: awsBucketName,
+		prefix: awsBucketPrefix,
+		path:   resizePath,
+		region: awsRegion,
+		client: client,
+	}
+
+	resizeHandler := newResizeHandler(ro)
+
+	log.Println("Serving images from", resizePath)
+
+	mux.HandleFunc(resizePath, resizeHandler)
+	mux.HandleFunc("/robots.txt", robotsHandler)
 
 	// add mux to middleware stack
 	n.UseHandler(mux)
