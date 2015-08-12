@@ -93,6 +93,7 @@ func resizeHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 		log.Println("Completed resizeHandler: ERROR: Impossible error:", err.Error())
 		http.Error(w, "", http.StatusInternalServerError)
 		return
+
 	}
 
 	// write out the content type
