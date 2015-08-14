@@ -22,14 +22,14 @@ func Do(r io.Reader, w io.Writer, crop *image.Rectangle, width, height int) erro
 		return err
 	}
 
-	// resize it
-	img = imaging.Resize(img, width, height, imaging.MitchellNetravali)
-
 	// if crop isn't nil
 	if crop != nil {
 		// then crop it
 		img = imaging.Crop(img, *crop)
 	}
+
+	// resize it
+	img = imaging.Resize(img, width, height, imaging.MitchellNetravali)
 
 	// write it
 	if err := imaging.Encode(w, img, imaging.PNG); err != nil {
